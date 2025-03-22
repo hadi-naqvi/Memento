@@ -3,6 +3,12 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
+
+# Import the database client
+from .db.firebase import db
+from .db.init_schema import initialize_schema
+
+# Load environment variables
 load_dotenv()
 
 jwt = JWTManager()
@@ -22,10 +28,21 @@ def create_app() -> Flask:
     app.config['JWT_BLACKLIST_TOKEN_CHECKS'] = ['access', 'refresh']
     jwt.init_app(app)
 
-    # with app.app_context():
-    #     from .models import User
-    #     db.create_all() 
+    # Set up database connection
+    app.config['FIREBASE_DB'] = db
+    
+    # Initialize database schema
+    try:
+        print("Initializing database schema...")
+        initialize_schema()
+        print("Database schema initialized successfully!")
+    except Exception as e:
+        print(f"Error initializing database schema: {e}")
+        import traceback
+        print(traceback.format_exc())
 
+    # Import routes and register blueprints
+    # Uncomment when routes are ready
     # from .routes import accounts
     # app.register_blueprint(accounts)
 
@@ -126,7 +143,6 @@ def create_app() -> Flask:
         Returns:
             Flask.Response: JSON response with error message and 500 status code.
         """
-        error.print_stack()
         return jsonify({"error": "Internal server error"}), 500
 
     @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
