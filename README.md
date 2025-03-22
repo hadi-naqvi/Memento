@@ -1,1 +1,1 @@
-1. ### npm install firebase
+1. ### pip install flask firebase-admin python-dotenv
