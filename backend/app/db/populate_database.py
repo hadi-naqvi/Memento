@@ -8,18 +8,38 @@ from faker import Faker
 import time
 import hashlib
 import json
-from google.cloud import aiplatform
-from vertexai.language_models import TextEmbeddingModel
+import sys
+from datetime import datetime, timedelta
 
-# Import firebase config - assuming you have this file
-from firebase import db
+# Try importing Vertex AI libraries, but continue if not available
+try:
+    from google.cloud import aiplatform
+    from vertexai.language_models import TextEmbeddingModel
+    vertex_available = True
+except ImportError:
+    print(
+        "Vertex AI libraries not available. Using simulated embeddings only.")
+    vertex_available = False
 
 # Initialize Faker for generating realistic fake data
 fake = Faker()
 
+# Try importing firebase config
+try:
+    from firebase import db
+    print("Successfully imported Firebase database connection")
+except ImportError:
+    print("Error: Could not import db from firebase module.")
+    print("Please create a firebase.py file with your Firebase configuration.")
+    sys.exit(1)
+
 
 # Initialize Vertex AI for embeddings
 def init_vertex_ai():
+    if not vertex_available:
+        print("Vertex AI libraries not available. Using simulated embeddings.")
+        return None
+
     try:
         # Initialize Vertex AI with your project
         aiplatform.init(project="memento-98a1c")
@@ -67,93 +87,131 @@ def generate_simulated_embedding(text, dimension=128):
     return vector
 
 
-def generate_sample_users(num_caregivers=3, num_patients=10):
-    """Generate sample caregiver and patient users with connections"""
+def generate_sample_users(num_users=3):
+    """Generate sample users with reminders"""
     print("Generating sample users...")
 
-    caregiver_ids = []
-    patient_ids = []
+    user_ids = []
 
-    # Create caregivers
-    for i in range(num_caregivers):
-        caregiver_id = str(uuid.uuid4())
-        caregiver_ids.append(caregiver_id)
+    # Diagnosis types
+    diagnosis_types = [
+        "Alzheimer's", "Dementia", "Mild Cognitive Impairment", "Memory Loss"
+    ]
 
-        db.collection('users').document(caregiver_id).set({
+    # Create users
+    for i in range(num_users):
+        user_id = str(uuid.uuid4())
+        user_ids.append(user_id)
+
+        # Generate random scores
+        medication_adherence = random.randint(60, 95)
+        memory_score = random.randint(50, 90)
+        daily_completed = random.randint(2, 5)
+        daily_total = 5
+
+        # Generate reminders (3 per user)
+        reminders = []
+        for j in range(3):
+            # Set up various reminder types
+            reminder_types = [{
+                "title":
+                "Take medication",
+                "description":
+                f"Take {random.choice(['morning', 'afternoon', 'evening'])} {random.choice(['pills', 'medication', 'dose'])}",
+                "imageUrl":
+                f"https://example.com/med_reminder_{j+1}.jpg"
+            }, {
+                "title":
+                "Doctor appointment",
+                "description":
+                f"Visit Dr. {fake.last_name()} for {random.choice(['check-up', 'follow-up', 'consultation'])}",
+                "imageUrl":
+                f"https://example.com/appointment_{j+1}.jpg"
+            }, {
+                "title":
+                "Family call",
+                "description":
+                f"Call {random.choice(['son', 'daughter', 'grandchild'])} {fake.first_name()}",
+                "imageUrl":
+                f"https://example.com/family_call_{j+1}.jpg"
+            }, {
+                "title":
+                "Memory exercise",
+                "description":
+                "Complete today's memory training session",
+                "imageUrl":
+                f"https://example.com/memory_exercise_{j+1}.jpg"
+            }, {
+                "title": "Meal time",
+                "description":
+                f"Time for {random.choice(['breakfast', 'lunch', 'dinner'])}",
+                "imageUrl": f"https://example.com/meal_{j+1}.jpg"
+            }]
+
+            # Select a random reminder type
+            reminder_type = random.choice(reminder_types)
+
+            # Create the reminder with timestamp a few days in the past, present, or future
+            days_offset = random.randint(-3, 7)
+            reminder_time = datetime.now() + timedelta(
+                days=days_offset,
+                hours=random.randint(8, 20),
+                minutes=random.randint(0, 59))
+
+            # Reminders in the past are more likely to be completed
+            is_completed = days_offset < 0 and random.random() < 0.8
+
+            reminders.append({
+                "id": str(uuid.uuid4()),
+                "title": reminder_type["title"],
+                "description": reminder_type["description"],
+                "timestamp": reminder_time,
+                "isCompleted": is_completed,
+                "imageUrl": reminder_type["imageUrl"]
+            })
+
+        # Generate a birth date as a datetime object, not a date object
+        # This is the key fix - convert faker's date_of_birth to a datetime
+        birth_date = fake.date_of_birth(minimum_age=65, maximum_age=90)
+        birth_datetime = datetime.combine(birth_date, datetime.min.time())
+
+        # Create the user document
+        db.collection('users').document(user_id).set({
             'username':
-            f"caregiver{i+1}@example.com",
-            'password':
-            "hashed_password_would_go_here",  # In reality, you'd use proper auth
+            f"user{i+1}",
+            'email':
+            f"user{i+1}@example.com",
             'displayName':
             fake.name(),
-            'type':
-            "caregiver",
+            'birthDate':
+            birth_datetime,  # Using datetime object instead of date
+            'diagnosisType':
+            random.choice(diagnosis_types),
+            'profileImageUrl':
+            f"https://example.com/profile_{i+1}.jpg",
             'createdAt':
             firestore.SERVER_TIMESTAMP,
-            'connections': {
-                'patients': []  # Will be populated later
-            }
+            'medicationAdherence':
+            medication_adherence,
+            'memoryScore':
+            memory_score,
+            'dailyQuestionsCompleted':
+            daily_completed,
+            'dailyQuestionsTotal':
+            daily_total,
+            'reminders':
+            reminders
         })
 
-    # Create patients
-    for i in range(num_patients):
-        patient_id = str(uuid.uuid4())
-        patient_ids.append(patient_id)
-
-        # Assign to 1-2 random caregivers
-        assigned_caregivers = random.sample(
-            caregiver_ids, random.randint(1, min(2, len(caregiver_ids))))
-
-        db.collection('users').document(patient_id).set({
-            'username':
-            f"patient{i+1}@example.com",
-            'password':
-            "hashed_password_would_go_here",  # In reality, you'd use proper auth
-            'displayName':
-            fake.name(),
-            'type':
-            "patient",
-            'createdAt':
-            firestore.SERVER_TIMESTAMP,
-            'dateOfBirth':
-            fake.date_of_birth(minimum_age=65,
-                               maximum_age=90).strftime('%Y-%m-%d'),
-            'medicalInfo': {
-                'diagnosisDate':
-                fake.date_time_between(start_date='-5y',
-                                       end_date='now').strftime('%Y-%m-%d'),
-                'alzheimerStage':
-                random.choice(['Early', 'Middle', 'Late']),
-                'medications':
-                [fake.word() for _ in range(random.randint(1, 4))]
-            },
-            'personalInfo': {
-                'familyMembers':
-                [fake.name() for _ in range(random.randint(2, 5))],
-                'hometown': fake.city(),
-                'occupation': fake.job(),
-                'hobbies': [fake.word() for _ in range(random.randint(1, 4))]
-            },
-            'connections': {
-                'caregivers': assigned_caregivers
-            }
-        })
-
-        # Update caregiver connections
-        for caregiver_id in assigned_caregivers:
-            caregiver_ref = db.collection('users').document(caregiver_id)
-            caregiver_ref.update(
-                {'connections.patients': firestore.ArrayUnion([patient_id])})
-
-    print(f"Created {num_caregivers} caregivers and {num_patients} patients")
-    return caregiver_ids, patient_ids
+    print(f"Created {num_users} users with reminders")
+    return user_ids
 
 
-def generate_conversations(patient_ids, days_of_history=30):
-    """Generate sample conversations between patients and AI chatbot"""
+def generate_conversations(user_ids, days_of_history=30):
+    """Generate sample conversations between users and AI chatbot"""
     print("Generating sample conversations...")
 
-    # Common conversation topics for Alzheimer's patients
+    # Common conversation topics for users with memory issues
     topics = [
         "medication", "family", "memories", "daily activities", "meals",
         "sleep", "health", "mood", "weather", "hobbies"
@@ -226,24 +284,24 @@ def generate_conversations(patient_ids, days_of_history=30):
         ]
     }]
 
-    all_conversations = {}
+    for user_id in user_ids:
+        # Get user info for personalization
+        user_doc = db.collection('users').document(user_id).get().to_dict()
+        user_name = user_doc['displayName'].split()[0]  # First name
 
-    for patient_id in patient_ids:
-        # Get patient info for personalization
-        patient_doc = db.collection('users').document(
-            patient_id).get().to_dict()
-        patient_name = patient_doc['displayName'].split()[0]  # First name
-        hometown = patient_doc.get('personalInfo',
-                                   {}).get('hometown', fake.city())
-        occupation = patient_doc.get('personalInfo',
-                                     {}).get('occupation', fake.job())
-        family_members = patient_doc.get('personalInfo',
-                                         {}).get('familyMembers', [])
+        # Generate some random personal info for conversation context
+        hometown = fake.city()
+        occupation = fake.job()
+        family_members = [fake.name() for _ in range(random.randint(2, 5))]
 
         conversation_messages = []
 
         # Generate conversations across multiple days
         for day in range(days_of_history):
+            # Not every day has conversations
+            if random.random() < 0.3:  # 70% chance of having conversations
+                continue
+
             # Timestamp for this day (going backward from today)
             day_timestamp = datetime.now() - timedelta(days=days_of_history -
                                                        day)
@@ -263,7 +321,7 @@ def generate_conversations(patient_ids, days_of_history=30):
                 relation = random.choice([
                     'son', 'daughter', 'grandson', 'granddaughter', 'brother',
                     'sister', 'friend'
-                ]) if family_members else ""
+                ])
                 family_name = random.choice(
                     family_members) if family_members else fake.name()
 
@@ -369,18 +427,11 @@ def generate_conversations(patient_ids, days_of_history=30):
                     hours=random.randint(8, 20), minutes=random.randint(0, 59))
 
                 conversation_messages.append({
-                    'id':
-                    str(uuid.uuid4()),
-                    'sender':
-                    'ai',
-                    'content':
-                    ai_message,
-                    'timestamp':
-                    ai_timestamp,
-                    'topics':
-                    ai_message_topics,
-                    'sentiment':
-                    random.choice(['neutral', 'positive', 'question'])
+                    'id': str(uuid.uuid4()),
+                    'sender': 'ai',
+                    'content': ai_message,
+                    'timestamp': ai_timestamp,
+                    'topics': ai_message_topics
                 })
 
                 # Patient response
@@ -390,47 +441,28 @@ def generate_conversations(patient_ids, days_of_history=30):
                 for key, value in replacements.items():
                     patient_response = patient_response.replace(key, value)
 
-                # Random sentiment - weighted toward neutral/positive but some negative
-                sentiment_choices = [
-                    'neutral', 'neutral', 'positive', 'positive', 'negative',
-                    'confused'
-                ]
-                sentiment_weights = [0.3, 0.3, 0.2, 0.1, 0.05, 0.05]
-
                 patient_timestamp = ai_timestamp + timedelta(
                     minutes=random.randint(1, 5))
 
                 conversation_messages.append({
-                    'id':
-                    str(uuid.uuid4()),
-                    'sender':
-                    'patient',
-                    'content':
-                    patient_response,
-                    'timestamp':
-                    patient_timestamp,
+                    'id': str(uuid.uuid4()),
+                    'sender': 'patient',
+                    'content': patient_response,
+                    'timestamp': patient_timestamp,
                     'topics':
-                    ai_message_topics,  # Using the same topics as the AI message
-                    'sentiment':
-                    random.choices(sentiment_choices,
-                                   weights=sentiment_weights)[0]
+                    ai_message_topics  # Using the same topics as the AI message
                 })
 
         # Store the conversation
-        db.collection('conversations').document(patient_id).set(
+        db.collection('conversations').document(user_id).set(
             {'messages': conversation_messages})
 
-        # Store for later use in memory vectors
-        all_conversations[patient_id] = conversation_messages
-
-    print(
-        f"Generated conversations for {len(patient_ids)} patients over {days_of_history} days"
-    )
-    return all_conversations
+    print(f"Generated conversations for {len(user_ids)} users")
+    return True
 
 
-def generate_game_sessions(patient_ids, days_of_history=30):
-    """Generate sample memory game sessions for patients"""
+def generate_game_sessions(user_ids, days_of_history=30):
+    """Generate sample memory game sessions for users"""
     print("Generating sample game sessions...")
 
     # Sample memory game questions
@@ -469,15 +501,13 @@ def generate_game_sessions(patient_ids, days_of_history=30):
         ]
     }]
 
-    all_game_sessions = {}
-
-    for patient_id in patient_ids:
+    for user_id in user_ids:
         game_sessions = []
 
         # Generate game sessions across multiple days
         for day in range(days_of_history):
             # Not every day has a game session
-            if random.random() < 0.7:  # 70% chance of having a game session
+            if random.random() < 0.7:  # 30% chance of having a game session
                 continue
 
             # Timestamp for this day (going backward from today)
@@ -538,273 +568,160 @@ def generate_game_sessions(patient_ids, days_of_history=30):
             })
 
         # Store the game sessions
-        db.collection('gameSessions').document(patient_id).set(
+        db.collection('gameSessions').document(user_id).set(
             {'sessions': game_sessions})
 
-        all_game_sessions[patient_id] = game_sessions
-
-    print(f"Generated game sessions for {len(patient_ids)} patients")
-    return all_game_sessions
+    print(f"Generated game sessions for {len(user_ids)} users")
+    return True
 
 
-def extract_entities(text):
-    """Extract potential people, places from text (simplified)"""
-    # In a real app, you'd use NER models. This is a simplified version.
-    words = text.split()
+def generate_patient_memories(user_ids):
+    """Generate sample memories for each patient"""
+    print("Generating patient memories...")
 
-    # Look for capitalized words that might be names or places
-    entities = [
-        word.strip(',.!?;:()[]{}') for word in words
-        if word and word[0].isupper() and len(word) > 1
-        and word.strip(',.!?;:()[]{}').isalpha()
-    ]
+    memory_types = ["photo", "diary", "medical", "biography", "milestone"]
 
-    return entities
+    for user_id in user_ids:
+        user_doc = db.collection('users').document(user_id).get().to_dict()
+        user_name = user_doc['displayName']
+
+        # Generate some context data for memories
+        family_names = [fake.name() for _ in range(5)]
+        places = [fake.city() for _ in range(5)]
+
+        # Create between 5-10 memories per user
+        memories = []
+        for i in range(random.randint(5, 10)):
+            memory_type = random.choice(memory_types)
+
+            # Generate title and content based on type
+            if memory_type == "photo":
+                title = f"Family photo from {fake.year()}"
+                content = f"A {random.choice(['color', 'black and white'])} photograph showing {user_name} with {random.choice(family_names)} at {random.choice(places)}. {random.choice(['Everyone is smiling.', 'It was a special occasion.', 'The weather was beautiful that day.'])}"
+                image_url = f"https://example.com/memory_photos/{i+1}.jpg"
+            elif memory_type == "diary":
+                title = f"Journal entry - {fake.date_time_between(start_date='-50y', end_date='-1y').strftime('%B %Y')}"
+                content = f"Today I went to {random.choice(places)} with {random.choice(family_names)}. We {random.choice(['had lunch at a nice restaurant', 'went for a walk in the park', 'visited the museum', 'saw an old friend'])}. {fake.paragraph(nb_sentences=2)}"
+                image_url = f"https://example.com/diary_pages/{i+1}.jpg"
+            elif memory_type == "medical":
+                title = f"Medical record - {fake.date_time_between(start_date='-10y', end_date='-1y').strftime('%B %d, %Y')}"
+                content = f"Appointment with Dr. {fake.last_name()} at {fake.company()} Medical Center. {random.choice(['Regular checkup', 'Follow-up appointment', 'Consultation about symptoms'])}: {fake.paragraph(nb_sentences=1)}"
+                image_url = f"https://example.com/medical_records/{i+1}.jpg"
+            elif memory_type == "biography":
+                title = f"Life milestone - {random.choice(['Childhood', 'School years', 'First job', 'Marriage', 'Career', 'Retirement'])}"
+                content = f"{fake.paragraph(nb_sentences=3)} This was during my time in {random.choice(places)}."
+                image_url = f"https://example.com/biography/{i+1}.jpg"
+            else:  # milestone
+                title = f"Important event - {fake.date_time_between(start_date='-50y', end_date='-1y').strftime('%Y')}"
+                content = f"{random.choice(['Wedding day', 'Birth of my child', 'Graduation', 'First house', 'Retirement party'])} in {random.choice(places)}. {fake.paragraph(nb_sentences=2)}"
+                image_url = f"https://example.com/milestone/{i+1}.jpg"
+
+            # Generate keywords
+            keywords = list(
+                set([
+                    word for word in content.split()
+                    if len(word) > 4 and word.isalpha()
+                ][:10]))
+
+            # Create people, places, topics metadata
+            people = random.sample(family_names, k=random.randint(1, 3))
+            memory_places = random.sample(places, k=random.randint(1, 2))
+            topics = random.sample([
+                "family", "travel", "health", "celebration", "work",
+                "education", "hobby"
+            ],
+                                   k=random.randint(1, 3))
+
+            # Create timestamp (weighted toward past)
+            years_ago = random.randint(1, 50)
+            memory_timestamp = datetime.now() - timedelta(days=365 * years_ago)
+
+            memories.append({
+                'id': str(uuid.uuid4()),
+                'title': title,
+                'content': content,
+                'imageUrl': image_url,
+                'timestamp': memory_timestamp,
+                'keywords': keywords,
+                'metadata': {
+                    'people': people,
+                    'places': memory_places,
+                    'topics': topics,
+                    'type': memory_type
+                }
+            })
+
+        # Store the memories
+        db.collection('patientMemories').document(user_id).set(
+            {'memories': memories})
+
+    print(f"Generated memories for {len(user_ids)} users")
+    return True
 
 
-def extract_keywords(text):
-    """Extract potential keywords from text (simplified)"""
-    # In a real app, you'd use keyword extraction models. This is simplified.
-    common_words = {
-        'the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in', 'for', 'with',
-        'on', 'at', 'from', 'by', 'about', 'as', 'into', 'like', 'through',
-        'after', 'over', 'between', 'out', 'against', 'during', 'without',
-        'before', 'under', 'around', 'among', 'is', 'am', 'are', 'was', 'were',
-        'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
-        'will', 'would', 'shall', 'should', 'may', 'might', 'must', 'can',
-        'could', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him',
-        'her', 'us', 'them', 'this', 'that', 'these', 'those'
-    }
+def generate_memory_vectors(user_ids):
+    """Generate memory vectors based on patient memories, with proper subcollections for vector search"""
+    print("Generating memory vectors from patient memories...")
 
-    words = text.lower().split()
-    keywords = [
-        word.strip(',.!?;:()[]{}') for word in words
-        if word.strip(',.!?;:()[]{}').isalpha() and word.strip(',.!?;:()[]{}')
-        not in common_words and len(word.strip(',.!?;:()[]{}')) > 3
-    ]
+    for user_id in user_ids:
+        # Get patient memories
+        memories_doc = db.collection('patientMemories').document(user_id).get()
 
-    # Remove duplicates and limit to 10 keywords
-    unique_keywords = list(set(keywords))
-    return unique_keywords[:10]
-
-
-def generate_memory_vectors(patient_ids, conversations):
-    """Generate memory vectors based on conversation data, with proper subcollections for vector search"""
-    print("Generating memory vectors from conversations...")
-
-    for patient_id in patient_ids:
-        patient_conversations = conversations.get(patient_id, [])
-
-        if not patient_conversations:
+        if not memories_doc.exists:
             continue
 
-        # Get patient info for metadata
-        patient_doc = db.collection('users').document(
-            patient_id).get().to_dict()
-        family_members = patient_doc.get('personalInfo',
-                                         {}).get('familyMembers', [])
+        memories = memories_doc.to_dict().get('memories', [])
+
+        if not memories:
+            continue
 
         # First create the patient document in patientMemoryVectors collection
-        db.collection('patientMemoryVectors').document(patient_id).set({
+        db.collection('patientMemoryVectors').document(user_id).set({
             'patientId':
-            patient_id,
+            user_id,
             'totalMemories':
-            0,  # Will update this at the end
+            len(memories),
             'lastUpdated':
             firestore.SERVER_TIMESTAMP
         })
 
         # Then get the chunks subcollection reference
         chunks_ref = db.collection('patientMemoryVectors').document(
-            patient_id).collection('chunks')
+            user_id).collection('chunks')
 
-        memory_count = 0
-
-        # Process patient messages to create memory vectors
-        patient_messages = [
-            msg for msg in patient_conversations
-            if msg.get('sender') == 'patient'
-        ]
-
-        # Group messages by day for context
-        days = {}
-        for msg in patient_messages:
-            msg_timestamp = msg.get('timestamp')
-            if isinstance(msg_timestamp, datetime):
-                day_key = msg_timestamp.strftime('%Y-%m-%d')
-                if day_key not in days:
-                    days[day_key] = []
-                days[day_key].append(msg)
-
-        # Process conversation data by day
-        for day, messages in days.items():
-            if len(messages) < 1:
-                continue
-
-            # Combine messages if there are multiple in a day
-            if len(messages) > 1:
-                # Create a summary of the day's conversation
-                message_contents = [msg.get('content', '') for msg in messages]
-                daily_topics = []
-                for msg in messages:
-                    daily_topics.extend(msg.get('topics', []))
-
-                summary = f"On {day}, the patient talked about: " + "; ".join(
-                    message_contents[:3])
-
-                # Extract entities and keywords
-                entities = []
-                keywords = []
-                for content in message_contents:
-                    entities.extend(extract_entities(content))
-                    keywords.extend(extract_keywords(content))
-
-                people = list(
-                    set([
-                        entity for entity in entities
-                        if entity in family_members or random.random() < 0.3
-                    ]))
-                places = list(
-                    set([
-                        entity for entity in entities
-                        if entity not in people and random.random() < 0.7
-                    ]))
-                topics = list(set(daily_topics))
-
-                # Generate embedding vector
-                vector = generate_real_embedding(summary)
-
-                # Add document to chunks subcollection
-                memory_id = str(uuid.uuid4())
-                chunks_ref.document(memory_id).set({
-                    'id':
-                    memory_id,
-                    'summary':
-                    summary,
-                    'sourceId':
-                    f"conv_{day}",  # Reference to original conversation
-                    'vector':
-                    vector,
-                    'keywords':
-                    list(set(keywords))[:10],  # Limit to 10 unique keywords
-                    'timestamp':
-                    datetime.strptime(day, '%Y-%m-%d'),
-                    'metadata': {
-                        'people': people[:5],  # Limit to 5 people
-                        'places': places[:3],  # Limit to 3 places
-                        'topics': topics[:5],  # Limit to 5 topics
-                        'type': 'conversation'
-                    }
-                })
-                memory_count += 1
-            else:
-                # Process individual message
-                msg = messages[0]
-                content = msg.get('content', '')
-                topics = msg.get('topics', [])
-
-                # Extract entities and keywords
-                entities = extract_entities(content)
-                keywords = extract_keywords(content)
-
-                people = [
-                    entity for entity in entities
-                    if entity in family_members or random.random() < 0.3
-                ]
-                places = [
-                    entity for entity in entities
-                    if entity not in people and random.random() < 0.7
-                ]
-
-                # Generate embedding vector
-                vector = generate_real_embedding(content)
-
-                # Add document to chunks subcollection
-                memory_id = str(uuid.uuid4())
-                chunks_ref.document(memory_id).set({
-                    'id':
-                    memory_id,
-                    'summary':
-                    content,
-                    'sourceId':
-                    msg.get('id', ''),  # Reference to original message
-                    'vector':
-                    vector,
-                    'keywords':
-                    keywords,
-                    'timestamp':
-                    msg.get('timestamp', datetime.strptime(day, '%Y-%m-%d')),
-                    'metadata': {
-                        'people': people[:5],  # Limit to 5 people
-                        'places': places[:3],  # Limit to 3 places
-                        'topics': topics[:5],  # Limit to 5 topics
-                        'type': 'conversation'
-                    }
-                })
-                memory_count += 1
-
-        # Add some supplementary memories (not from conversations)
-        additional_memory_types = ["photo", "diary", "medical", "biography"]
-
-        for _ in range(random.randint(5, 15)):
-            memory_type = random.choice(additional_memory_types)
-
-            # Generate memory content based on type
-            if memory_type == "photo":
-                summary = f"Photo from {fake.date()} showing {random.choice(['family gathering', 'vacation', 'birthday', 'wedding', 'holiday'])}"
-            elif memory_type == "diary":
-                summary = f"Diary entry about {random.choice(['childhood memory', 'work experience', 'family event', 'travel'])}"
-            elif memory_type == "medical":
-                summary = f"Medical appointment on {fake.date()} with Dr. {fake.last_name()}"
-            else:  # biography
-                summary = f"Biographical detail about {random.choice(['childhood', 'education', 'career', 'marriage', 'retirement'])}"
+        # Process memories to create vector chunks
+        for memory in memories:
+            # For each memory, create a vector chunk
+            summary = f"{memory.get('title', 'Untitled memory')}: {memory.get('content', '')[:200]}..."
 
             # Generate embedding vector
             vector = generate_real_embedding(summary)
 
-            # Generate metadata
-            people = []
-            if random.random() < 0.7:  # 70% chance of including people
-                people = random.sample(
-                    family_members,
-                    k=min(len(family_members), random.randint(
-                        1, 3))) if family_members else [fake.name()]
-
-            places = []
-            if random.random() < 0.5:  # 50% chance of including places
-                places = [fake.city()]
-
-            topics = [fake.word() for _ in range(random.randint(1, 3))]
-
             # Add document to chunks subcollection
-            memory_id = str(uuid.uuid4())
+            memory_id = memory.get('id', str(uuid.uuid4()))
             chunks_ref.document(memory_id).set({
                 'id':
                 memory_id,
                 'summary':
                 summary,
                 'sourceId':
-                str(uuid.uuid4()),  # Reference to original content
+                memory_id,  # Reference to original memory
                 'vector':
                 vector,
                 'keywords':
-                extract_keywords(summary),
+                memory.get('keywords', []),
                 'timestamp':
-                fake.date_time_between(start_date='-50y', end_date='now'),
-                'metadata': {
-                    'people': people,
-                    'places': places,
-                    'topics': topics,
-                    'type': memory_type
-                }
+                memory.get('timestamp', datetime.now()),
+                'metadata':
+                memory.get('metadata', {
+                    'people': [],
+                    'places': [],
+                    'topics': [],
+                    'type': 'unknown'
+                })
             })
-            memory_count += 1
 
-        # Update the total count in the patient document
-        db.collection('patientMemoryVectors').document(patient_id).update(
-            {'totalMemories': memory_count})
-
-    print(f"Generated memory vectors for {len(patient_ids)} patients")
+    print(f"Generated memory vectors for {len(user_ids)} users")
 
 
 def setup_vector_search():
@@ -843,13 +760,13 @@ def setup_vector_search():
             "You may need to set up vector search manually in the GCP console")
 
 
-def test_vector_search(patient_id, query_text="Tell me about my family"):
+def test_vector_search(user_id, query_text="Tell me about my family"):
     """Test vector search functionality"""
     try:
         from google.cloud.firestore_v1 import VectorQuery
 
         print(
-            f"Testing vector search for patient {patient_id} with query: '{query_text}'"
+            f"Testing vector search for user {user_id} with query: '{query_text}'"
         )
 
         # Generate query vector
@@ -864,7 +781,7 @@ def test_vector_search(patient_id, query_text="Tell me about my family"):
 
         # Perform search
         chunks_ref = db.collection("patientMemoryVectors").document(
-            patient_id).collection("chunks")
+            user_id).collection("chunks")
 
         results = chunks_ref.find(vector_query=vector_query, num_to_return=5)
 
@@ -884,12 +801,11 @@ def test_vector_search(patient_id, query_text="Tell me about my family"):
         print(f"Vector search test failed: {e}")
 
 
-def export_sample_ids(caregiver_ids, patient_ids):
+def export_sample_ids(user_ids):
     """Export sample IDs to a JSON file for testing"""
     try:
         sample_data = {
-            "caregivers": caregiver_ids[:2],  # First 2 caregivers
-            "patients": patient_ids[:3],  # First 3 patients
+            "users": user_ids,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
@@ -911,121 +827,54 @@ def populate_database():
     """Main function to populate the entire database"""
     start_time = time.time()
 
-    # Check if database already has data to avoid duplicate entries
-    users_count = len(list(db.collection('users').limit(1).stream()))
-    if users_count > 0:
+    try:
+        # Check if database already has data to avoid duplicate entries
+        users_count = len(list(db.collection('users').limit(1).stream()))
+        if users_count > 0:
+            print(
+                "Database already contains data. Aborting to prevent duplication."
+            )
+            print("If you want to repopulate, first clear the database.")
+            return
+
+        # Generate all data
+        print("Starting database population...")
+        user_ids = generate_sample_users(3)  # Generate 3 users
+        generate_conversations(user_ids)
+        generate_game_sessions(user_ids)
+        generate_patient_memories(user_ids)
+        generate_memory_vectors(user_ids)
+
+        # Try to set up vector search indexes
+        setup_vector_search()
+
+        # Export sample IDs for testing
+        export_sample_ids(user_ids)
+
+        # Test vector search with a sample user
+        if user_ids:
+            test_vector_search(user_ids[0])
+
+        end_time = time.time()
         print(
-            "Database already contains data. Aborting to prevent duplication.")
-        print("If you want to repopulate, first clear the database.")
-        return
+            f"Database populated successfully in {end_time - start_time:.2f} seconds!"
+        )
+        print("\nSample IDs for testing:")
+        for i, user_id in enumerate(user_ids):
+            print(f"User {i+1} ID: {user_id}")
+        print(
+            "\nNote: More sample IDs are available in the sample_ids.json file"
+        )
 
-    # Generate all data
-    caregiver_ids, patient_ids = generate_sample_users()
-    conversations = generate_conversations(patient_ids)
-    game_sessions = generate_game_sessions(patient_ids)
-    generate_memory_vectors(patient_ids, conversations)
-
-    # Try to set up vector search indexes
-    setup_vector_search()
-
-    # Export sample IDs for testing
-    export_sample_ids(caregiver_ids, patient_ids)
-
-    # Test vector search with a sample patient
-    if patient_ids:
-        test_vector_search(patient_ids[0])
-
-    end_time = time.time()
-    print(
-        f"Database populated successfully in {end_time - start_time:.2f} seconds!"
-    )
-    print("\nSample IDs for testing:")
-    print(f"Caregiver ID: {caregiver_ids[0]}")
-    print(f"Patient ID: {patient_ids[0]}")
-    print("\nNote: More sample IDs are available in the sample_ids.json file")
-
-
-def clear_database():
-    """Clear all collections from the database - USE WITH CAUTION"""
-    print("WARNING: This will delete ALL data in the database.")
-    confirmation = input("Type 'DELETE' to confirm: ")
-
-    if confirmation != "DELETE":
-        print("Operation canceled.")
-        return
-
-    collections = [
-        'users', 'conversations', 'gameSessions', 'patientMemoryVectors'
-    ]
-
-    for collection_name in collections:
-        # Get all documents in the collection
-        docs = db.collection(collection_name).stream()
-
-        for doc in docs:
-            # For patientMemoryVectors, need to delete chunks subcollection first
-            if collection_name == 'patientMemoryVectors':
-                chunks = db.collection(collection_name).document(
-                    doc.id).collection('chunks').stream()
-                for chunk in chunks:
-                    chunk.reference.delete()
-
-            # Delete the document
-            doc.reference.delete()
-
-        print(f"Cleared collection: {collection_name}")
-
-    print("Database cleared successfully")
-
-
-def print_menu():
-    """Display a menu of options"""
-    print("\nMEMENTO DATABASE UTILITY")
-    print("=======================")
-    print("1. Populate database")
-    print("2. Clear database")
-    print("3. Test vector search")
-    print("4. Exit")
-
-    choice = input("\nEnter choice (1-4): ")
-
-    if choice == '1':
-        populate_database()
-    elif choice == '2':
-        clear_database()
-    elif choice == '3':
-        patient_id = input("Enter patient ID: ")
-        query = input("Enter search query: ")
-        test_vector_search(patient_id, query)
-    elif choice == '4':
-        print("Exiting.")
-        return
-    else:
-        print("Invalid choice")
-
-    input("\nPress Enter to continue...")
-    print_menu()
+    except Exception as e:
+        print(f"Error during database population: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
-    print("Memento Database Population Script")
-    print("=================================")
-
-    # Command-line arguments handling
-    import sys
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "populate":
-            populate_database()
-        elif sys.argv[1] == "clear":
-            clear_database()
-        elif sys.argv[1] == "test" and len(sys.argv) > 2:
-            test_vector_search(
-                sys.argv[2], sys.argv[3]
-                if len(sys.argv) > 3 else "Tell me about my family")
-        else:
-            print(
-                "Usage: python populate_database.py [populate|clear|test <patient_id> <query>]"
-            )
+    if len(sys.argv) > 1 and sys.argv[1] == "populate":
+        print("Starting database population...")
+        populate_database()
     else:
-        # Interactive mode
-        print_menu()
+        print("Usage: python populate_database.py populate")
