@@ -3,8 +3,8 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
-from .routes.auth import auth_bp
 
+from .routes.auth import auth_bp
 from app.routes.companion import chatbot_bp
 from app.routes.reminders import reminder_bp
 from app.routes.quizzes import quiz_bp
@@ -29,15 +29,28 @@ def create_app() -> Flask:
     app = Flask(__name__)
 
     # Updated CORS configuration to explicitly allow content-type header
-    CORS(app,
-         resources={
-             r"/*": {
-                 "origins": "*",
-                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                 "allow_headers": ["Content-Type", "Authorization", "Accept"]
-             }
-         })
+    # CORS(app,
+    #      resources={
+    #          r"/*": {
+    #              "origins": "*",
+    #              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    #              "allow_headers": ["Content-Type", "Authorization", "Accept"]
+    #          }
+    #      })
 
+    # CORS(app, origins=["http://localhost:3000"], supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
+
+    CORS(app,
+     resources={
+         r"/*": {
+             "origins": ["http://localhost:3000"],  # Keep security, allow only frontend
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Keep all methods
+             "allow_headers": ["Content-Type", "Authorization", "Accept"],  # Keep all headers
+             "supports_credentials": True  # Keep auth support
+         }
+     })
+
+    
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
     app.config['JWT_REFRESH_SECRET_KEY'] = os.getenv('JWT_REFRESH_SECRET_KEY')
     app.config['JWT_BLACKLIST_ENABLED'] = True
@@ -61,6 +74,19 @@ def create_app() -> Flask:
         print(f"Error initializing database schema: {e}")
         import traceback
         print(traceback.format_exc())
+
+    @app.after_request
+    def after_request(response):
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
+
+    # Handle OPTIONS requests for all routes
+    @app.route('/<path:path>', methods=['OPTIONS'])
+    def options_handler(path):
+        return '', 200
+
 
     # Import routes and register blueprints
     # Uncomment when routes are ready
