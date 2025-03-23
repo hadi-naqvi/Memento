@@ -3,6 +3,7 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
+from .routes.auth import auth_bp
 
 # Import the database client
 from .db.firebase import db
@@ -21,12 +22,21 @@ def create_app() -> Flask:
         Flask: The configured Flask application instance.
     """
     app = Flask(__name__)
-    CORS(app, resources={r"/*": {"origins": "*", "methods": "*"}})
+    
+    # Updated CORS configuration to explicitly allow content-type header
+    CORS(app, resources={r"/*": {
+        "origins": "*", 
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "Accept"]
+    }})
+    
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
     app.config['JWT_REFRESH_SECRET_KEY'] = os.getenv('JWT_REFRESH_SECRET_KEY')
     app.config['JWT_BLACKLIST_ENABLED'] = True
     app.config['JWT_BLACKLIST_TOKEN_CHECKS'] = ['access', 'refresh']
     jwt.init_app(app)
+
+    app.register_blueprint(auth_bp)
 
     # Set up database connection
     app.config['FIREBASE_DB'] = db
