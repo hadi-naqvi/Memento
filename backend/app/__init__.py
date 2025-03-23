@@ -1,9 +1,13 @@
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
-from .routes.auth import auth_bp
+# from .routes.auth import auth_bp
+
+from app.routes.companion import chatbot_bp
+from app.routes.reminders import reminder_bp
+from app.routes.quizzes import quiz_bp
 
 # Import the database client
 from .db.firebase import db
@@ -14,6 +18,7 @@ load_dotenv()
 
 jwt = JWTManager()
 
+
 def create_app() -> Flask:
     """
     Create and configure the Flask application.
@@ -22,25 +27,31 @@ def create_app() -> Flask:
         Flask: The configured Flask application instance.
     """
     app = Flask(__name__)
-    
+
     # Updated CORS configuration to explicitly allow content-type header
-    CORS(app, resources={r"/*": {
-        "origins": "*", 
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "Accept"]
-    }})
-    
+    CORS(app,
+         resources={
+             r"/*": {
+                 "origins": "*",
+                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                 "allow_headers": ["Content-Type", "Authorization", "Accept"]
+             }
+         })
+
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
     app.config['JWT_REFRESH_SECRET_KEY'] = os.getenv('JWT_REFRESH_SECRET_KEY')
     app.config['JWT_BLACKLIST_ENABLED'] = True
     app.config['JWT_BLACKLIST_TOKEN_CHECKS'] = ['access', 'refresh']
     jwt.init_app(app)
 
-    app.register_blueprint(auth_bp)
+    # app.register_blueprint(auth_bp)
+    app.register_blueprint(chatbot_bp)
+    app.register_blueprint(reminder_bp)
+    app.register_blueprint(quiz_bp)
 
     # Set up database connection
     app.config['FIREBASE_DB'] = db
-    
+
     # Initialize database schema
     try:
         print("Initializing database schema...")
@@ -67,9 +78,7 @@ def create_app() -> Flask:
         Returns:
             Flask.Response: JSON response with error message and 401 status code.
         """
-        return jsonify({
-            'error': 'You must be logged in.'
-        }), 401
+        return jsonify({'error': 'You must be logged in.'}), 401
 
     @jwt.invalid_token_loader
     def invalid_token_response(callback: callable) -> Response:
@@ -82,9 +91,9 @@ def create_app() -> Flask:
         Returns:
             Flask.Response: JSON response with error message and 422 status code.
         """
-        return jsonify({
-            'error': 'The provided token is invalid. Please log in again.'
-        }), 422
+        return jsonify(
+            {'error':
+             'The provided token is invalid. Please log in again.'}), 422
 
     @jwt.expired_token_loader
     def expired_token_response(callback: callable) -> Response:
@@ -98,7 +107,8 @@ def create_app() -> Flask:
             Flask.Response: JSON response with error message and 401 status code.
         """
         return jsonify({
-            'error': 'The token has expired. Please log in again to obtain a new token.'
+            'error':
+            'The token has expired. Please log in again to obtain a new token.'
         }), 401
 
     @jwt.revoked_token_loader
@@ -113,7 +123,8 @@ def create_app() -> Flask:
             Flask.Response: JSON response with error message and 401 status code.
         """
         return jsonify({
-            'error': 'The token has been revoked. Please log in again to obtain a new token.'
+            'error':
+            'The token has been revoked. Please log in again to obtain a new token.'
         }), 401
 
     @app.errorhandler(404)
@@ -155,7 +166,8 @@ def create_app() -> Flask:
         """
         return jsonify({"error": "Internal server error"}), 500
 
-    @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+    @app.route('/<path:path>',
+               methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
     def catch_all(path: str) -> Response:
         """
         Catch all undefined routes and methods.
@@ -166,6 +178,16 @@ def create_app() -> Flask:
         Returns:
             Flask.Response: JSON response with error message and 404 status code.
         """
-        return jsonify({"error": "This endpoint does not exist or method is not allowed"}), 404
+        if request.method == 'OPTIONS':
+            response = jsonify({})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            response.headers.add('Access-Control-Allow-Headers',
+                                 'Content-Type,Authorization,Accept')
+            response.headers.add('Access-Control-Allow-Methods',
+                                 'GET,POST,PUT,DELETE,OPTIONS')
+            return response
+        return jsonify(
+            {"error":
+             "This endpoint does not exist or method is not allowed"}), 404
 
     return app
