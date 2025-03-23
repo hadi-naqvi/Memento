@@ -3,7 +3,7 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
-# from .routes.auth import auth_bp
+from .routes.auth import auth_bp
 
 from app.routes.companion import chatbot_bp
 from app.routes.reminders import reminder_bp
@@ -44,7 +44,7 @@ def create_app() -> Flask:
     app.config['JWT_BLACKLIST_TOKEN_CHECKS'] = ['access', 'refresh']
     jwt.init_app(app)
 
-    # app.register_blueprint(auth_bp)
+    app.register_blueprint(auth_bp)
     app.register_blueprint(chatbot_bp)
     app.register_blueprint(reminder_bp)
     app.register_blueprint(quiz_bp)
