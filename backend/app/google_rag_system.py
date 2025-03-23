@@ -263,7 +263,8 @@ class MementoRAGSystem:
         
         Respond in a warm, supportive manner. If the memories provide relevant information,
         use it naturally in your response without explicitly mentioning that you're using their memories.
-        Keep your response conversational and compassionate, as you're speaking to someone with Alzheimer's.
+        Keep your response conversational and compassionate, as you're speaking to someone with Alzheimer's. 
+        Don't be too over the top and act like a normal friend. Make sure not to confuse the patient by mentioning too many things at once.
         
         Your response:
         """
